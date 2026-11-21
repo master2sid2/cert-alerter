@@ -1,0 +1,69 @@
+# Cert Alerter service configuration (/etc/default/cert-alerter).
+#
+# ARGS holds the command line flags of "cert-alerter serve". systemd splits it
+# at whitespace and does not interpret quotes, so values with spaces (and
+# secrets, which would be visible in "ps") belong in the CERT_ALERTER_*
+# variables at the end of this file instead. Every flag has such a variable.
+#
+# Apply changes with: systemctl restart cert-alerter
+# Full list of flags:  cert-alerter serve -h
+
+ARGS="-listen=:8080 -data-dir=/var/lib/cert-alerter"
+
+# ---- HTTP ------------------------------------------------------------------
+# HTTP listen address. Ports below 1024 need CAP_NET_BIND_SERVICE (see the unit).
+#   -listen=:8080
+# Public URL used in e-mail links; overrides the value from the settings page.
+#   -base-url=https://certs.example.com
+# Serve HTTPS directly. The files must be readable by the cert-alerter user.
+#   -tls-cert=/etc/cert-alerter/tls.crt
+#   -tls-key=/etc/cert-alerter/tls.key
+# Trust X-Forwarded-For / X-Forwarded-Proto from a reverse proxy (nginx etc.).
+#   -trust-proxy=true
+# Session cookie Secure flag: auto, always, never.
+#   -cookie-secure=auto
+
+# ---- Storage -----------------------------------------------------------------
+# Directory for the SQLite database and the generated secret key.
+#   -data-dir=/var/lib/cert-alerter
+# Database driver: sqlite or mysql.
+#   -db-driver=sqlite
+# Database DSN; sqlite: file path (default <data-dir>/cert-alerter.db),
+# mysql: user:pass@tcp(host:3306)/db. Prefer CERT_ALERTER_DB_DSN below for
+# a DSN with a password.
+#   -db-dsn=/var/lib/cert-alerter/cert-alerter.db
+
+# ---- Certificate checks ------------------------------------------------------
+# PEM file with additional trusted CA certificates (e.g. an internal corporate CA).
+#   -ca-file=/etc/cert-alerter/internal-ca.pem
+# Run scheduled checks and alerts on this instance (false for extra instances
+# that only serve the UI).
+#   -scheduler=true
+
+# ---- Logging -----------------------------------------------------------------
+# Application log level: debug, info, warn, error.
+#   -log-level=info
+# Application log format: text or json.
+#   -log-format=text
+# Application log destination: stderr (journald), stdout, off or a file path.
+#   -log-file=/var/log/cert-alerter/app.log
+# HTTP access log destination: stdout (journald), stderr, off or a file path.
+#   -access-log=/var/log/cert-alerter/access.log
+# HTTP access log format: text or json.
+#   -access-log-format=text
+# Log files outside /var/log/cert-alerter need ReadWritePaths= in the unit.
+# "systemctl reload cert-alerter" reopens the files after rotation.
+
+# ---- Bootstrap ---------------------------------------------------------------
+# Create this admin on the first start, while the database has no users
+# (otherwise a one-time setup link is printed to the journal).
+#   -admin-email=admin@example.com   (password: CERT_ALERTER_ADMIN_PASSWORD below)
+
+# ---- Environment variables ---------------------------------------------------
+# Passphrase used to encrypt stored secrets (the SMTP password). Without it a
+# random key is created in <data-dir>/secret.key; keep that file with the database.
+#CERT_ALERTER_SECRET_KEY=change-me-to-a-long-random-passphrase
+# MySQL DSN with a password.
+#CERT_ALERTER_DB_DSN=alerter:secret@tcp(127.0.0.1:3306)/cert_alerter
+# Password of the bootstrap admin (with -admin-email).
+#CERT_ALERTER_ADMIN_PASSWORD=

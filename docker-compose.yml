@@ -1,0 +1,25 @@
+# Single container with an embedded SQLite database.
+#   docker compose up -d --build
+# The first-start setup link is printed in `docker compose logs cert-alerter`.
+services:
+  cert-alerter:
+    build: .
+    image: cert-alerter:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      CERT_ALERTER_BASE_URL: "http://localhost:8080"     # public URL used in e-mail links
+      # CERT_ALERTER_SECRET_KEY: "long random passphrase" # encrypts the stored SMTP password
+      # CERT_ALERTER_ADMIN_EMAIL: "admin@example.com"     # optional: create the admin non-interactively
+      # CERT_ALERTER_ADMIN_PASSWORD: "..."
+      # CERT_ALERTER_CA_FILE: "/data/internal-ca.pem"     # trust an internal CA when verifying chains
+      CERT_ALERTER_LOG_FORMAT: "json"                    # application log (stderr)
+      CERT_ALERTER_ACCESS_LOG_FORMAT: "json"             # HTTP access log (stdout); "off" via CERT_ALERTER_ACCESS_LOG
+      # CERT_ALERTER_LOG_FILE: "/data/logs/app.log"      # write the logs to files instead
+      # CERT_ALERTER_ACCESS_LOG: "/data/logs/access.log"
+    volumes:
+      - cert-alerter-data:/data
+
+volumes:
+  cert-alerter-data:

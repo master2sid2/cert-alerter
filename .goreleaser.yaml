@@ -1,0 +1,33 @@
+# Release builds for GitHub, run by .github/workflows/release.yml on a v* tag.
+version: 2
+
+project_name: cert-alerter
+
+builds:
+  - main: ./cmd/cert-alerter
+    env:
+      - CGO_ENABLED=0 # pure Go, SQLite included
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      # The tag, with its "v": /api/health and "cert-alerter version" show it as-is.
+      - -X github.com/master2sid2/cert-alerter/internal/version.Version={{ .Tag }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [binary]
+    name_template: "{{ .ProjectName }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: SHA256SUMS
+
+# The release notes are the CHANGELOG.md section of the tag (see release.yml);
+# do not disable the changelog pipe: it is also what applies --release-notes.
+
+release:
+  footer: |
+    ### Install
+    Download the binary for your platform, check it against `SHA256SUMS`, make it executable and run `cert-alerter serve`, or run `go install github.com/master2sid2/cert-alerter/cmd/cert-alerter@{{ .Tag }}`. For a service see the README (systemd unit, Docker).

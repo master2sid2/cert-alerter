@@ -1,0 +1,41 @@
+# Cert Alerter with MySQL 8.4.
+#   docker compose -f deploy/docker-compose.mysql.yml up -d --build
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "change-me-root"
+      MYSQL_DATABASE: cert_alerter
+      MYSQL_USER: alerter
+      MYSQL_PASSWORD: "change-me"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pchange-me-root"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  cert-alerter:
+    build: ..
+    image: cert-alerter:latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      CERT_ALERTER_DB_DRIVER: mysql
+      CERT_ALERTER_DB_DSN: "alerter:change-me@tcp(mysql:3306)/cert_alerter"
+      CERT_ALERTER_SECRET_KEY: "change-me-long-random-passphrase"
+      CERT_ALERTER_BASE_URL: "http://localhost:8080"
+      CERT_ALERTER_LOG_FORMAT: "json"                    # application log (stderr)
+      CERT_ALERTER_ACCESS_LOG_FORMAT: "json"             # HTTP access log (stdout); "off" via CERT_ALERTER_ACCESS_LOG
+      # CERT_ALERTER_LOG_FILE: "/data/logs/app.log"      # write the logs to files instead
+      # CERT_ALERTER_ACCESS_LOG: "/data/logs/access.log"
+
+volumes:
+  mysql-data:
