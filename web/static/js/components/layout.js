@@ -80,6 +80,7 @@ export function Shell({ children }) {
           <${LanguageSwitch} />
           <${Button} size="sm" kind="ghost" icon="logout" title=${t('nav.logout')} aria-label=${t('nav.logout')} onClick=${logout} />
         </div>
+        ${me?.app?.version && html`<div class="app-version" title=${t('common.version')}>${me.app.name || 'Cert Alerter'} ${me.app.version}</div>`}
       </div>
     </aside>
     ${open && html`<div class="scrim" onClick=${() => setOpen(false)}></div>`}

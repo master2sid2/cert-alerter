@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org).
 
+## [v0.2.1] - 2026-11-24
+
+- Expiry horizon: the chart keeps its height with many certificates. Dots shrink first; a stack
+  that still does not fit is broken in the middle by a vertical ellipsis with the number of
+  certificates in it, and ends with its top rows. Certificates past the axis are packed into
+  the "expired" and "90+" zones.
+- Expiry horizon: certificates with check errors are shown. Those without data (never checked,
+  or every check failed) appear in a "no data" zone. A failing last check draws an error ring
+  around the dot, and the tooltip says so.
+- The build version is shown on the sign-in pages and in the sidebar.
+- Card headers wrap on narrow screens instead of squeezing the title.
+
 ## [v0.2.0] - 2026-11-24
 
 - Messenger channels: Telegram, Slack (also Mattermost, Rocket.Chat, Discord) and a generic JSON

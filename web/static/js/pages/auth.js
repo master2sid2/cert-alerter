@@ -10,7 +10,19 @@ import { t, fmtDateTime, errorText } from '../lib/i18n.js';
 import { useTitle } from '../lib/hooks.js';
 import { LanguageSwitch, logout } from '../components/layout.js';
 
+// The build version for the footer, from the public health endpoint.
+let versionReq;
+function useVersion() {
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    versionReq ||= get('/health').then((h) => h.version || '').catch(() => '');
+    versionReq.then(setVersion);
+  }, []);
+  return version;
+}
+
 function AuthLayout({ children, appName }) {
+  const version = useVersion();
   return html`<div class="auth">
     <aside class="auth-art">
       <div class="brand" style=${{ position: 'relative', zIndex: 1 }}>
@@ -27,7 +39,7 @@ function AuthLayout({ children, appName }) {
     <section class="auth-form">
       <div class="auth-card reveal">${children}
         <div class="auth-foot">
-          <span>© ${new Date().getFullYear()} ${appName || 'Cert Alerter'}</span>
+          <span>© ${new Date().getFullYear()} ${appName || 'Cert Alerter'}${version && html`<span class="app-version" title=${t('common.version')}>${version}</span>`}</span>
           <${LanguageSwitch} compact=${false} size="xs" />
         </div>
       </div>

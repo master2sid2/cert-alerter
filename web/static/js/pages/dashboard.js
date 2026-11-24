@@ -87,7 +87,8 @@ export function Dashboard() {
 
     <${Card} class="reveal" style=${{ '--i': 5 }} title=${t('dash.horizon')} sub=${t('dash.horizon_sub', { thresholds: me.app.thresholds.join(' · ') })}
       tools=${html`<div class="legend">
-        ${['ok', 'warning', 'critical', 'expired', 'error'].map((s) => html`<span class=${'tone-' + s}><i></i>${t('status.' + s)}</span>`)}
+        ${['ok', 'warning', 'critical', 'expired', 'error'].map((s) => html`<span class=${'tone-' + s}
+          title=${s === 'error' ? t('dash.check_failed') : undefined}><i class=${s === 'error' ? 'ring' : ''}></i>${t('status.' + s)}</span>`)}
       </div>`}>
       ${certs.data
         ? certs.data.length
