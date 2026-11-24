@@ -99,6 +99,7 @@ type Group struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 	CertificateCount int       `json:"certificate_count"`
 	RecipientCount   int       `json:"recipient_count"`
+	ChannelCount     int       `json:"channel_count"`
 }
 
 // Recipient is an e-mail address that receives alerts of its groups.
@@ -227,13 +228,18 @@ type CheckTarget struct {
 	Port int
 }
 
-// Notification is one alert for one recipient about one certificate in one
-// group at one threshold. It doubles as the delivery history.
+// Notification is one alert for one recipient (e-mail) or one channel
+// (messenger) about one certificate in one group at one threshold. It
+// doubles as the delivery history.
 type Notification struct {
-	ID             int64      `json:"id"`
-	GroupID        *int64     `json:"group_id"`
-	CertificateID  *int64     `json:"certificate_id"`
-	RecipientID    *int64     `json:"recipient_id"`
+	ID            int64  `json:"id"`
+	GroupID       *int64 `json:"group_id"`
+	CertificateID *int64 `json:"certificate_id"`
+	RecipientID   *int64 `json:"recipient_id"`
+	// ChannelType is set for messenger notifications ("" = e-mail); then
+	// RecipientEmail holds the channel name.
+	ChannelID      *int64     `json:"channel_id"`
+	ChannelType    string     `json:"channel_type"`
 	GroupName      string     `json:"group_name"`
 	CertificateURL string     `json:"certificate_url"`
 	RecipientEmail string     `json:"recipient_email"`
@@ -264,7 +270,7 @@ type AlertCandidate struct {
 // of the entities it refers to, so the sender can drop stale ones.
 type DueNotification struct {
 	Notification
-	Valid bool // certificate, group and recipient still match
+	Valid bool // certificate, group and recipient or channel still match
 
 	CertificateName string
 	SubjectCN       string

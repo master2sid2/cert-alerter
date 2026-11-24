@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org).
 
+## [v0.2.0] - 2026-11-24
+
+- Messenger channels: Telegram, Slack (also Mattermost, Rocket.Chat, Discord) and a generic JSON
+  webhook. Channels are attached to groups and receive one message per group alert; messengers
+  are turned on and off in "Settings → Messengers"; tokens and webhook URLs are stored encrypted.
+- Group test notifications also go to the group's channels.
+- The mail log became the delivery log (e-mails and messenger messages) with a channel filter;
+  the notification history shows and filters channels too.
+
 ## [v0.1.0] - 2026-11-21
 
 First release.

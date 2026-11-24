@@ -128,6 +128,10 @@ func (s *Server) handleGetGroup(w http.ResponseWriter, r *http.Request) error {
 	if recipients == nil {
 		recipients = []store.Recipient{}
 	}
+	channels, err := s.Channels.GroupChannels(ctx, id)
+	if err != nil {
+		return err
+	}
 	notifs, _, err := s.Store.ListNotifications(ctx, store.NotificationFilter{GroupID: id, Limit: 25})
 	if err != nil {
 		return err
@@ -136,6 +140,7 @@ func (s *Server) handleGetGroup(w http.ResponseWriter, r *http.Request) error {
 		"group":         groupView{Group: *g, Health: healthOf(certs)},
 		"certificates":  certs,
 		"recipients":    recipients,
+		"channels":      channels,
 		"notifications": notifs,
 	})
 	return nil
@@ -386,7 +391,7 @@ func (s *Server) handleGroupTest(w http.ResponseWriter, r *http.Request) error {
 	case errors.Is(err, mailer.ErrNotConfigured):
 		return errConflict("smtp_not_configured", "SMTP is not configured")
 	case errors.Is(err, alerts.ErrNoRecipients):
-		return errConflict("no_recipients", "the group has no recipients")
+		return errConflict("no_recipients", "the group has no recipients and no channels")
 	case err != nil:
 		return err
 	}

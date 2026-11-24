@@ -11,7 +11,8 @@ import (
 
 const groupSelect = `SELECT g.id, g.name, g.description, g.created_at, g.updated_at,
 	(SELECT COUNT(*) FROM group_certificates gc WHERE gc.group_id = g.id),
-	(SELECT COUNT(*) FROM group_recipients gr WHERE gr.group_id = g.id)
+	(SELECT COUNT(*) FROM group_recipients gr WHERE gr.group_id = g.id),
+	(SELECT COUNT(*) FROM group_channels gch WHERE gch.group_id = g.id)
 	FROM alert_groups g`
 
 func scanGroup(sc scanner) (*Group, error) {
@@ -19,7 +20,7 @@ func scanGroup(sc scanner) (*Group, error) {
 		g                Group
 		created, updated int64
 	)
-	if err := sc.Scan(&g.ID, &g.Name, &g.Description, &created, &updated, &g.CertificateCount, &g.RecipientCount); err != nil {
+	if err := sc.Scan(&g.ID, &g.Name, &g.Description, &created, &updated, &g.CertificateCount, &g.RecipientCount, &g.ChannelCount); err != nil {
 		return nil, err
 	}
 	g.CreatedAt, g.UpdatedAt = fromUnix(created), fromUnix(updated)

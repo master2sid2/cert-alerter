@@ -5,14 +5,15 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/master2sid2/cert-alerter)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A web application that monitors SSL/TLS certificates by URL and sends e-mail alerts
-**strictly per group** **30, 14, 7 and 3 days** before expiry (the thresholds are configurable).
+A web application that monitors SSL/TLS certificates by URL and sends alerts by e-mail and to
+messengers (Telegram, Slack, webhooks) **strictly per group** **30, 14, 7 and 3 days** before
+expiry (the thresholds are configurable).
 It is a single static Go binary: the web UI is embedded (`embed`), the state is stored in
 SQLite or, if needed, in MySQL/MariaDB.
 
-![Cert Alerter: sign in, overview, certificates with filters and search, a certificate, a group, the mail log](docs/screenshots/demo.gif)
+![Cert Alerter: sign in, overview, certificates with filters and search, a certificate, a group, the delivery log, messengers](docs/screenshots/demo.gif)
 
-*Recorded with made-up data: local test endpoints with a demo CA, a few public test hosts and a local mail catcher.*
+*Recorded with made-up data: local test endpoints with a demo CA, a few public test hosts, a local mail catcher and a stand-in for the messenger APIs.*
 
 <table>
   <tr>
@@ -24,7 +25,8 @@ SQLite or, if needed, in MySQL/MariaDB.
     <td><a href="docs/screenshots/group.png"><img src="docs/screenshots/group.png" alt="Group"></a></td>
   </tr>
   <tr>
-    <td colspan="2"><a href="docs/screenshots/mail-log.png"><img src="docs/screenshots/mail-log.png" alt="Mail log" width="50%"></a></td>
+    <td><a href="docs/screenshots/delivery-log.png"><img src="docs/screenshots/delivery-log.png" alt="Delivery log"></a></td>
+    <td><a href="docs/screenshots/messengers.png"><img src="docs/screenshots/messengers.png" alt="Messengers"></a></td>
   </tr>
 </table>
 
@@ -34,9 +36,15 @@ SQLite or, if needed, in MySQL/MariaDB.
   `ldaps://dc1:636`, `smtps://…`, IDN domains such as `bücher.example`, IPv6). The app reads the
   chain, validity period, SANs, issuer, key and TLS version, and verifies trust and the host name.
   Expired and self-signed certificates are shown too (marked "Untrusted").
-- **Groups** contain certificates and recipients (e-mail addresses). An alert about a certificate
-  goes only to the recipients of the groups it belongs to. An address that is in two groups gets
-  two separate e-mails, each one only about the certificates of its own group.
+- **Groups** contain certificates, recipients (e-mail addresses) and messenger channels. An alert
+  about a certificate goes only to the recipients and channels of the groups it belongs to. An
+  address that is in two groups gets two separate e-mails, each one only about the certificates of
+  its own group.
+- **Messengers**: Telegram (bot), Slack (incoming webhook; Mattermost, Rocket.Chat and Discord's
+  Slack-compatible endpoint accept the same format) and a generic JSON webhook. A channel (a chat,
+  a Slack channel, a webhook URL) is attached to groups and receives one message per group alert,
+  independently of the group's e-mail recipients. Messengers are turned on and off in
+  "Settings → Messengers"; tokens and webhook URLs are stored encrypted.
 - **Alert stages** 30/14/7/3 days plus "expired" (enabled in the settings). Each stage is sent
   once per recipient; after a certificate is renewed the countdown starts over. When several
   certificates of one group trigger at once, a single digest e-mail is sent.
@@ -44,10 +52,11 @@ SQLite or, if needed, in MySQL/MariaDB.
   authentication auto/PLAIN/LOGIN/CRAM-MD5; verification of the SMTP server certificate (can be
   turned off); test e-mail straight from the settings page (even before saving). The SMTP password
   is stored encrypted (AES-256-GCM).
-- **Mail log**: every e-mail (alerts, tests, invitations, password resets) with recipient, time,
-  subject, group and certificates, and the result ("accepted by the SMTP server" or the error text,
-  e.g. `535 Authentication credentials invalid`). Filters by kind, result, group and dates, search,
-  CSV export. Plus the history of alert stages for every certificate and group.
+- **Delivery log**: every e-mail (alerts, tests, invitations, password resets) and messenger
+  message with recipient or channel, time, subject, group and certificates, and the result
+  ("accepted" or the error text, e.g. `535 Authentication credentials invalid` or
+  `HTTP 400: Bad Request: chat not found`). Filters by channel, kind, result, group and dates,
+  search, CSV export. Plus the history of alert stages for every certificate and group.
 - **Dashboard**: summary, "expiry horizon" (all certificates on an axis of days left with threshold
   zones), upcoming expirations, problems (unreachable endpoints, untrusted chains), group health.
 - **Multiple users**: e-mail invitations with a link to activate the account and choose a password,
@@ -173,15 +182,51 @@ The image is ~30 MB (distroless, non-root, built-in `HEALTHCHECK`).
    checked right after they are added. If a check fails, the data of the last successful check is
    used, so expiry alerts keep working, and the error is shown on the dashboard.
 2. Once a minute (and right after changes) the stage is computed for every
-   *group × certificate × recipient*: the smallest threshold that is not less than the number of
+   *group × certificate × recipient* and *group × certificate × channel*: the smallest threshold that is not less than the number of
    full days left (5 days left → stage "7", 1 day → "3", expired → "expired").
 3. Each stage is queued exactly once (the unique key includes the expiry date, so a renewed
    certificate starts the cycle again).
-4. The queue is sent as digests, one e-mail per recipient and group. If several stages piled up
-   while mail was not working, only the most urgent one is sent. If the recipient or the
-   certificate is no longer in the group, the notification is cancelled.
+4. The queue is sent as digests, one e-mail per recipient and group and one message per channel
+   and group. If several stages piled up while delivery was not working, only the most urgent one
+   is sent. If the recipient, the channel or the certificate is no longer in the group, or the
+   channel or its messenger was turned off, the notification is cancelled.
 5. Failed sends are retried with growing delays (5 min → 15 min → 1 h → 3 h → 6 h, up to
-   12 attempts). If SMTP is not configured yet, alerts accumulate and are sent once it is.
+   12 attempts). If SMTP is not configured yet, e-mail alerts accumulate and are sent once it is.
+
+### Messenger channels
+
+| Messenger | Messenger settings | Channel settings |
+|---|---|---|
+| Telegram | bot token from @BotFather, optional Bot API URL | chat id (`-100…` for groups and channels, or `@channel`), optional topic id, silent mode |
+| Slack | none | incoming webhook URL (Mattermost, Rocket.Chat, Discord `…/slack` work too) |
+| Webhook | none | URL, optional `Authorization` header |
+
+The webhook receives a `POST` with a JSON body:
+
+```json
+{
+  "event": "alert",
+  "app": "Cert Alerter",
+  "app_url": "https://certs.example.com/",
+  "group": {"name": "Production", "url": "https://certs.example.com/groups/1"},
+  "severity": "critical",
+  "title": "[Production] SSL certificate api.example.com expires in 5 days",
+  "text": "plain text version of the whole message",
+  "certificates": [
+    {"name": "API", "endpoint": "https://api.example.com", "subject_cn": "api.example.com",
+     "issuer_cn": "R11", "not_after": "2026-03-06T09:00:00Z", "days_left": 5,
+     "severity": "critical", "url": "https://certs.example.com/certificates/7"}
+  ]
+}
+```
+
+`event` is `test` for test messages. Requests to messengers use the trust store of the checks
+(`-ca-file`) and the `HTTPS_PROXY`/`NO_PROXY` environment variables; "Skip TLS verification" is
+available per Slack and webhook channel. Every channel can be tested from its form before saving.
+
+A new messenger is one file in `internal/notify` implementing `notify.Provider` (field
+descriptions plus `Send`) and registering itself in `init`; the web interface builds its forms from
+the field descriptions.
 
 No new alerts are created for a certificate that expired more than 90 days ago.
 
@@ -189,16 +234,17 @@ No new alerts are created for a certificate that expired more than 90 days ago.
 
 | Action                                               | Admin | User |
 |------------------------------------------------------|:-----:|:----:|
-| View the dashboard, certificates, groups, recipients, notifications, mail log | ✓ | ✓ |
+| View the dashboard, certificates, groups, recipients, notifications, delivery log | ✓ | ✓ |
 | Add certificates (one by one or as a list), run checks | ✓ | ✓ |
 | Put certificates into groups                         | ✓ | ✓ |
 | Edit/delete certificates, remove them from groups    | ✓ | — |
 | Create, edit and delete groups                       | ✓ | — |
 | Manage recipients (e-mail lists)                     | ✓ | — |
+| Messengers and channels, attach channels to groups   | ✓ | — |
 | Users, invitations, settings, audit log              | ✓ | — |
 
 Permissions are enforced by the server (the API returns 403); the UI merely hides unavailable
-actions. Invitation and password reset e-mails in the mail log are visible to admins only.
+actions. Invitation and password reset e-mails in the delivery log are visible to admins only.
 Users cannot change their own role or status, and the last active admin cannot be removed.
 
 ## Configuration
@@ -306,7 +352,8 @@ Manual checks from the UI work on any instance.
 - Account lockout after N failed sign-ins, rate limiting of sign-in and password reset requests,
   identical responses and response times for existing and unknown addresses.
 - Invitation and reset links are single-use and expire; only their hash is stored.
-- The SMTP password is encrypted with AES-256-GCM. The audit log records sign-ins, failed
+- The SMTP password, messenger tokens and webhook URLs are encrypted with AES-256-GCM and never
+  sent back to the browser; delivery errors never contain them. The audit log records sign-ins, failed
   attempts, and changes of data and settings.
 
 ## Command line
@@ -329,7 +376,7 @@ Without `-password`/`-password-stdin` the `user` commands generate a password an
 The UI is built on a JSON API (`/api/…`) that can also be used for automation with a cookie
 session: `POST /api/auth/login`, `GET/POST /api/certificates`, `POST /api/certificates/bulk`,
 `POST /api/certificates/{id}/check`, `GET /api/groups/{id}`, `POST /api/groups/{id}/certificates`,
-`GET /api/mail-log` (`?kind=&status=&group_id=&from=&to=&q=`), `GET /api/mail-log/export` (CSV),
+`GET /api/mail-log` (`?channel=&kind=&status=&group_id=&from=&to=&q=`), `GET/POST /api/channels`, `GET /api/mail-log/export` (CSV),
 `GET /api/dashboard`, `GET /healthz` and more. The full list of routes is in
 `internal/server/server.go`.
 
@@ -348,7 +395,8 @@ cmd/cert-alerter     entry point and CLI
 internal/checker     TLS connection, URL parsing, chain verification
 internal/monitor     scheduled and manual checks, scheduler lease
 internal/alerts      stages, alert queue, digests, retries
-internal/mailer      SMTP (go-mail), e-mail templates, mail log
+internal/mailer      SMTP (go-mail), e-mail templates, delivery log of e-mails
+internal/notify      messenger providers (Telegram, Slack, webhook), channels, delivery
 internal/logging     application and access logs, log files
 internal/store       data access (SQLite/MySQL); internal/db holds migrations and dialects
 internal/server      HTTP API, sessions, permissions, embedded UI

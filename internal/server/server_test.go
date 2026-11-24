@@ -22,6 +22,7 @@ import (
 	"github.com/master2sid2/cert-alerter/internal/logging"
 	"github.com/master2sid2/cert-alerter/internal/mailer"
 	"github.com/master2sid2/cert-alerter/internal/monitor"
+	"github.com/master2sid2/cert-alerter/internal/notify"
 	"github.com/master2sid2/cert-alerter/internal/secret"
 	"github.com/master2sid2/cert-alerter/internal/server"
 	"github.com/master2sid2/cert-alerter/internal/settings"
@@ -69,9 +70,11 @@ func newEnv(t *testing.T, d *db.DB) *env {
 	set := settings.NewService(st, box, "", log)
 	sender := &testutil.FakeSender{}
 	journal := &mailer.Journal{Next: sender, Store: st, Log: log}
-	eng := alerts.New(st, set, journal, log)
-	mon := monitor.New(ctx, st, set, eng, log, "test", false)
 	ca := testutil.NewCA(t)
+	channels := notify.NewService(st, box, notify.NewClient(ca.Pool, 5*time.Second), log)
+	eng := alerts.New(st, set, journal, log)
+	eng.Channels = channels
+	mon := monitor.New(ctx, st, set, eng, log, "test", false)
 	mon.Roots = ca.Pool
 	cfg := &config.Config{CookieSecure: "auto"}
 	access := &lockedBuffer{}
@@ -80,7 +83,7 @@ func newEnv(t *testing.T, d *db.DB) *env {
 		t.Fatal(err)
 	}
 	srv, err := server.New(ctx, server.Deps{Config: cfg, Store: st, Settings: set, Monitor: mon, Alerts: eng,
-		Sender: journal, Log: log, AccessLog: accessLog, Static: web.Static(), Version: "test"})
+		Channels: channels, Sender: journal, Log: log, AccessLog: accessLog, Static: web.Static(), Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/master2sid2/cert-alerter/internal/logging"
 	"github.com/master2sid2/cert-alerter/internal/mailer"
 	"github.com/master2sid2/cert-alerter/internal/monitor"
+	"github.com/master2sid2/cert-alerter/internal/notify"
 	"github.com/master2sid2/cert-alerter/internal/settings"
 	"github.com/master2sid2/cert-alerter/internal/store"
 	"github.com/master2sid2/cert-alerter/internal/validate"
@@ -35,6 +36,7 @@ type Deps struct {
 	Settings *settings.Service
 	Monitor  *monitor.Monitor
 	Alerts   *alerts.Engine
+	Channels *notify.Service
 	Sender   mailer.Sender
 	Log      *slog.Logger
 	// AccessLog receives one line per HTTP request; nil disables it.
@@ -143,6 +145,8 @@ func (s *Server) Handler() http.Handler {
 	h("DELETE /api/groups/{id}/certificates/{certID}", s.admin(s.handleGroupRemoveCertificate))
 	h("POST /api/groups/{id}/recipients", s.admin(s.handleGroupAddRecipients))
 	h("DELETE /api/groups/{id}/recipients/{recipientID}", s.admin(s.handleGroupRemoveRecipient))
+	h("POST /api/groups/{id}/channels", s.admin(s.handleGroupAddChannels))
+	h("DELETE /api/groups/{id}/channels/{channelID}", s.admin(s.handleGroupRemoveChannel))
 	h("POST /api/groups/{id}/test", s.admin(s.handleGroupTest))
 	h("POST /api/recipients", s.admin(s.handleCreateRecipient))
 	h("PUT /api/recipients/{id}", s.admin(s.handleUpdateRecipient))
@@ -161,6 +165,14 @@ func (s *Server) Handler() http.Handler {
 	h("PUT /api/settings/monitoring", s.admin(s.handleSaveMonitoring))
 	h("PUT /api/settings/security", s.admin(s.handleSaveSecurity))
 	h("PUT /api/settings/general", s.admin(s.handleSaveGeneral))
+	h("GET /api/channel-providers", s.admin(s.handleListProviders))
+	h("PUT /api/channel-providers/{type}", s.admin(s.handleSaveProvider))
+	h("GET /api/channels", s.admin(s.handleListChannels))
+	h("POST /api/channels", s.admin(s.handleCreateChannel))
+	h("POST /api/channels/test", s.admin(s.handleTestChannel))
+	h("GET /api/channels/{id}", s.admin(s.handleGetChannel))
+	h("PUT /api/channels/{id}", s.admin(s.handleUpdateChannel))
+	h("DELETE /api/channels/{id}", s.admin(s.handleDeleteChannel))
 	h("GET /api/audit", s.admin(s.handleListAudit))
 
 	h("/api/", func(http.ResponseWriter, *http.Request) error {

@@ -30,6 +30,7 @@ import (
 	"github.com/master2sid2/cert-alerter/internal/logging"
 	"github.com/master2sid2/cert-alerter/internal/mailer"
 	"github.com/master2sid2/cert-alerter/internal/monitor"
+	"github.com/master2sid2/cert-alerter/internal/notify"
 	"github.com/master2sid2/cert-alerter/internal/secret"
 	"github.com/master2sid2/cert-alerter/internal/server"
 	"github.com/master2sid2/cert-alerter/internal/settings"
@@ -179,18 +180,22 @@ func runServe(args []string) error {
 	}
 	// Every e-mail (alerts, invites, resets, tests) is recorded in the mail journal.
 	sender := &mailer.Journal{Next: mailer.SMTPSender{}, Store: st, Log: log}
-	engine := alerts.New(st, set, sender, log)
-	mon := monitor.New(ctx, st, set, engine, log, cfg.InstanceID, cfg.Scheduler)
+	var roots *x509.CertPool // nil = system trust store
 	if cfg.CAFile != "" {
-		roots, err := loadRoots(cfg.CAFile)
-		if err != nil {
+		if roots, err = loadRoots(cfg.CAFile); err != nil {
 			return err
 		}
-		mon.Roots = roots
 		log.Info("additional trusted CA certificates loaded", "file", cfg.CAFile)
 	}
+	// Messenger channels (Telegram, Slack, webhooks); their requests trust
+	// the same CA certificates as the checks.
+	channels := notify.NewService(st, box, notify.NewClient(roots, notify.SendTimeout), log)
+	engine := alerts.New(st, set, sender, log)
+	engine.Channels = channels
+	mon := monitor.New(ctx, st, set, engine, log, cfg.InstanceID, cfg.Scheduler)
+	mon.Roots = roots
 	srv, err := server.New(ctx, server.Deps{
-		Config: cfg, Store: st, Settings: set, Monitor: mon, Alerts: engine, Sender: sender,
+		Config: cfg, Store: st, Settings: set, Monitor: mon, Alerts: engine, Channels: channels, Sender: sender,
 		Log: log, AccessLog: access, Static: web.Static(), Version: version.String(),
 	})
 	if err != nil {

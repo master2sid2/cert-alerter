@@ -1,9 +1,10 @@
-// Mail journal: every e-mail the application tried to send.
+// Delivery journal: every e-mail and messenger message the application tried to send.
 import { html, useState } from '../../vendor/preact-htm.js';
 import { Icon } from '../components/icons.js';
 import { Button, Card, Callout, Empty, ErrorState, Pager, Segmented, Skeleton } from '../components/ui.js';
 import { PageHead } from '../components/layout.js';
 import { groupColor } from '../components/status.js';
+import { channelIcon, channelLabel } from '../components/channels.js';
 import { get } from '../lib/api.js';
 import { app } from '../lib/store.js';
 import { Link, setQuery, useLocation } from '../lib/router.js';
@@ -12,6 +13,12 @@ import { t, tp, fmtDateISO, fmtTime, fmtRelative, formatNumber } from '../lib/i1
 
 const LIMIT = 50;
 const KIND_ICON = { alert: 'bell', group_test: 'send', test: 'zap', invite: 'userPlus', reset: 'key', other: 'mail' };
+// kindLabel names the journal entry type; a "test" is an SMTP test for
+// e-mail and a channel test for messengers.
+function kindLabel(e) {
+  if (e.kind === 'test' && e.channel && e.channel !== 'email') return t('mail.kind.channel_test');
+  return t('mail.kind.' + (KIND_ICON[e.kind] ? e.kind : 'other'));
+}
 const KIND_TONE = { alert: 'warning', group_test: 'accent', test: 'accent', invite: 'ok', reset: 'pending', other: 'pending' };
 
 export function MailLog() {
@@ -19,6 +26,7 @@ export function MailLog() {
   const isAdmin = me.user.role === 'admin';
   const { query } = useLocation();
   const kind = query.get('kind') || '';
+  const channel = query.get('channel') || '';
   const status = query.get('status') || '';
   const groupId = query.get('group_id') || '';
   const from = query.get('from') || '';
@@ -29,7 +37,7 @@ export function MailLog() {
   useTitle(t('nav.mail_log'), me.app.name);
 
   const params = new URLSearchParams();
-  for (const [k, v] of Object.entries({ kind, status, group_id: groupId, from, to, q: query.get('q') || '' })) if (v) params.set(k, v);
+  for (const [k, v] of Object.entries({ channel, kind, status, group_id: groupId, from, to, q: query.get('q') || '' })) if (v) params.set(k, v);
   const listParams = new URLSearchParams(params);
   listParams.set('limit', LIMIT);
   listParams.set('offset', offset);
@@ -72,10 +80,12 @@ export function MailLog() {
           <input class="input" type="date" style=${{ width: 'auto' }} value=${from} onChange=${(e) => setQuery({ from: e.target.value, offset: '' })} /></label>
         <label class="row" style=${{ gap: '6px' }}><span class="muted" style=${{ fontSize: '12.5px' }}>${t('mail.to')}</span>
           <input class="input" type="date" style=${{ width: 'auto' }} value=${to} onChange=${(e) => setQuery({ to: e.target.value, offset: '' })} /></label>
-        ${(from || to || groupId || kind || status || query.get('q')) && html`<${Button} kind="ghost" size="sm" icon="x"
-          onClick=${() => { setQ(''); setQuery({ kind: '', status: '', group_id: '', from: '', to: '', q: '', offset: '' }); }}>${t('mail.reset_filters')}<//>`}
+        ${(from || to || groupId || kind || channel || status || query.get('q')) && html`<${Button} kind="ghost" size="sm" icon="x"
+          onClick=${() => { setQ(''); setQuery({ channel: '', kind: '', status: '', group_id: '', from: '', to: '', q: '', offset: '' }); }}>${t('mail.reset_filters')}<//>`}
       </div>
       <div class="row-wrap hscroll" style=${{ gap: '10px' }}>
+        <${Segmented} value=${channel} onChange=${(v) => setQuery({ channel: v, offset: '' })} label=${t('channels.type')}
+          options=${['', 'email', 'telegram', 'slack', 'webhook'].map((c) => ({ value: c, label: c ? channelLabel(c) : t('channels.all'), icon: c ? channelIcon(c) : undefined }))} />
         <${Segmented} value=${kind} onChange=${(v) => setQuery({ kind: v, offset: '' })} label=${t('mail.col.kind')}
           options=${kinds.map((k) => ({ value: k, label: k ? t('mail.kind.' + k) : t('mail.kind_all'), icon: k ? KIND_ICON[k] : undefined }))} />
         <${Segmented} value=${status} onChange=${(v) => setQuery({ status: v, offset: '' })} label=${t('mail.col.status')}
@@ -93,8 +103,9 @@ export function MailLog() {
             <tr class="click" onClick=${() => setOpen(open === e.id ? null : e.id)} aria-expanded=${open === e.id}>
               <td class="nowrap"><div class="cell-main"><span class="mono" style=${{ fontSize: '12.5px' }}>${fmtDateISO(e.created_at)} ${fmtTime(e.created_at)}</span>
                 <span class="subtitle">${fmtRelative(e.created_at)}</span></div></td>
-              <td><span class=${'badge square tone-' + (KIND_TONE[e.kind] || 'pending')}><${Icon} name=${KIND_ICON[e.kind] || 'mail'} size="12" />${t('mail.kind.' + (KIND_ICON[e.kind] ? e.kind : 'other'))}</span></td>
-              <td><b style=${{ fontWeight: 550 }}>${e.recipient}</b></td>
+              <td><span class=${'badge square tone-' + (KIND_TONE[e.kind] || 'pending')}><${Icon} name=${KIND_ICON[e.kind] || 'mail'} size="12" />${kindLabel(e)}</span></td>
+              <td><span class="row" style=${{ gap: '6px' }} title=${channelLabel(e.channel)}><${Icon} name=${channelIcon(e.channel)} size="14" />
+                <b style=${{ fontWeight: 550 }}>${e.recipient}</b></span></td>
               <td style=${{ maxWidth: '380px' }}><div class="cell-main">
                 <span class="truncate">${e.subject}</span>
                 <span class="row-wrap" style=${{ gap: '6px' }}>
@@ -114,7 +125,8 @@ export function MailLog() {
                 ${e.group_name && html`<dt>${t('notif.col.group')}</dt><dd>${e.group_id ? html`<${Link} href=${'/groups/' + e.group_id}>${e.group_name}<//>` : e.group_name}</dd>`}
                 ${e.certificates.length > 0 && html`<dt>${t('nav.certificates')}</dt><dd><div class="sans">${e.certificates.map((u) => html`<code>${u}</code>`)}</div></dd>`}
                 <dt>${t('mail.col.status')}</dt><dd>${e.status === 'sent' ? t('mail.accepted_hint') : html`<span class="mono" style=${{ color: 'var(--exp)' }}>${e.error}</span>`}</dd>
-                <dt>${t('mail.col.server')}</dt><dd class="mono">${e.smtp_server || '—'} · ${e.duration_ms} ${t('mail.ms')}</dd>
+                <dt>${t('channels.type')}</dt><dd>${channelLabel(e.channel)}</dd>
+                <dt>${e.channel === 'email' ? t('mail.col.server') : t('mail.col.destination')}</dt><dd class="mono">${e.smtp_server || '—'} · ${e.duration_ms} ${t('mail.ms')}</dd>
               </dl>
             </td></tr>`}`)}</tbody></table></div>`}
       ${data.data && html`<${Pager} total=${data.data.total} offset=${offset} limit=${LIMIT} onChange=${(o) => setQuery({ offset: o || '' })} />`}

@@ -1,4 +1,4 @@
-// Groups: list and detail (certificates + recipients of a group).
+// Groups: list and detail (certificates, recipients and channels of a group).
 import { html, useState } from '../../vendor/preact-htm.js';
 import { Icon } from '../components/icons.js';
 import {
@@ -6,6 +6,7 @@ import {
 } from '../components/ui.js';
 import { PageHead } from '../components/layout.js';
 import { CertPicker } from '../components/pickers.js';
+import { channelIcon } from '../components/channels.js';
 import { DaysLeft, LifetimeRing, StatusBadge, certTitle, groupColor } from '../components/status.js';
 import { notifTone } from './dashboard.js';
 import { del, get, post, put } from '../lib/api.js';
@@ -13,6 +14,13 @@ import { app, toast } from '../lib/store.js';
 import { Link, navigate } from '../lib/router.js';
 import { useAsync, useTitle } from '../lib/hooks.js';
 import { t, tp, fmtDate, fmtDateISO, fmtRelative, fmtDateTime, thresholdLabel } from '../lib/i18n.js';
+
+// NotifTarget shows the recipient of a notification: an e-mail address or a
+// messenger channel.
+export function NotifTarget({ n }) {
+  if (!n.channel_type) return n.recipient_email;
+  return html`<span class="row" style=${{ gap: '6px' }} title=${n.channel_type}><${Icon} name=${channelIcon(n.channel_type)} size="14" />${n.recipient_email}</span>`;
+}
 
 const ORDER = ['expired', 'critical', 'error', 'warning', 'pending', 'ok', 'disabled'];
 
@@ -84,6 +92,7 @@ export function Groups() {
           <div class="card-foot" style=${{ fontSize: '12.5px', color: 'var(--muted)', gap: '16px' }}>
             <span class="row" style=${{ gap: '6px' }}><${Icon} name="shieldCheck" size="14" />${tp('unit.certs', g.certificate_count)}</span>
             <span class="row" style=${{ gap: '6px' }}><${Icon} name="mail" size="14" />${tp('unit.recipients', g.recipient_count)}</span>
+            ${g.channel_count > 0 && html`<span class="row" style=${{ gap: '6px' }}><${Icon} name="message" size="14" />${tp('unit.channels', g.channel_count)}</span>`}
             <span class="spacer"></span>
             ${g.health.min_days_left !== null && html`<span class="mono" title=${t('groups.min_days')}>${g.health.min_days_left < 0 ? t('status.expired') : '≤ ' + tp('unit.days', g.health.min_days_left)}</span>`}
           </div>
@@ -105,11 +114,14 @@ export function GroupDetail({ params }) {
   const [addingRcpt, setAddingRcpt] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [channelId, setChannelId] = useState('');
+  const allChannels = useAsync(() => (isAdmin ? get('/channels') : Promise.resolve([])), [isAdmin]);
   const g = data.data?.group;
   useTitle(g?.name || t('nav.groups'), me.app.name);
   if (data.error) return html`<div class="page"><${ErrorState} error=${data.error} onRetry=${data.reload} /></div>`;
   if (!g) return html`<${PageLoader} />`;
-  const { certificates, recipients, notifications } = data.data;
+  const { certificates, recipients, channels, notifications } = data.data;
+  const attachable = (allChannels.data || []).filter((c) => !channels.some((x) => x.id === c.id));
 
   const openPicker = async () => {
     try {
@@ -162,6 +174,27 @@ export function GroupDetail({ params }) {
       toastError(e);
     }
   };
+  const addChannel = async (e) => {
+    e.preventDefault();
+    if (!channelId) return;
+    try {
+      await post(`/groups/${id}/channels`, { channel_ids: [Number(channelId)] });
+      toast(t('group.channel_added'));
+      setChannelId('');
+      data.reload(true);
+    } catch (err) {
+      toastError(err);
+    }
+  };
+  const removeChannel = async (c) => {
+    if (!(await confirmDialog({ title: t('group.remove_channel_title'), message: t('group.remove_channel_text', { name: c.name, group: g.name }), confirmText: t('common.remove') }))) return;
+    try {
+      await del(`/groups/${id}/channels/${c.id}`);
+      data.reload(true);
+    } catch (err) {
+      toastError(err);
+    }
+  };
   const removeGroup = async () => {
     if (!(await confirmDialog({ title: t('groups.delete_title'), message: t('groups.delete_text', { name: g.name }), confirmText: t('common.delete') }))) return;
     try {
@@ -188,7 +221,7 @@ export function GroupDetail({ params }) {
     <${PageHead} title=${g.name} sub=${g.description}
       crumbs=${[{ label: t('nav.groups'), href: '/groups' }, { label: g.name }]}
       actions=${html`
-        ${isAdmin && html`<${Button} icon="send" loading=${testing} onClick=${sendTest} disabled=${!recipients.length}>${t('group.send_test')}<//>`}
+        ${isAdmin && html`<${Button} icon="send" loading=${testing} onClick=${sendTest} disabled=${!recipients.length && !channels.length}>${t('group.send_test')}<//>`}
         <${Button} kind="primary" icon="plus" onClick=${openPicker}>${t('group.add_certs')}<//>
         ${isAdmin && html`<${Menu} size="" items=${[
           { icon: 'edit', label: t('common.edit'), onClick: () => setEditing(true) },
@@ -244,11 +277,32 @@ export function GroupDetail({ params }) {
             <div class="form-actions"><${Button} type="submit" kind="primary" size="sm" icon="plus" loading=${addingRcpt} disabled=${!emails.trim()}>${t('common.add')}<//></div>
           </form>`}
         <//>
+        <${Card} class="reveal" style=${{ '--i': 6 }} flush title=${t('group.channels')} sub=${t('group.channels_sub')}>
+          ${channels.length === 0 ? html`<${Empty} icon="message" title=${t('group.no_channels')}>${isAdmin ? t('group.no_channels_text') : t('group.no_channels_text_user')}<//>`
+            : html`<div class="list">${channels.map((c) => html`<div class="list-item">
+                <span class="avatar" style=${{ width: '28px', height: '28px' }}><${Icon} name=${channelIcon(c.type)} size="14" /></span>
+                <div class="cell-main grow"><span class="truncate" style=${{ fontWeight: 550 }}>${c.name}</span>
+                  <span class="meta truncate">${c.type_label}${c.summary ? ' · ' + c.summary : ''}</span></div>
+                ${!c.enabled ? html`<span class="badge tone-pending">${t('channels.paused')}</span>`
+                  : !c.available && html`<span class="badge tone-warning" title=${t('channels.unavailable_hint')}>${t('channels.unavailable')}</span>`}
+                ${isAdmin && html`<${Button} kind="ghost" size="xs" icon="x" title=${t('common.remove')} aria-label=${t('common.remove')} onClick=${() => removeChannel(c)} />`}
+              </div>`)}</div>`}
+          ${isAdmin && html`<form class="card-foot" style=${{ gap: '8px' }} onSubmit=${addChannel}>
+            ${attachable.length > 0
+              ? html`<select class="select grow" value=${channelId} onChange=${(e) => setChannelId(e.target.value)} aria-label=${t('group.add_channel')}>
+                  <option value="">${t('group.pick_channel')}</option>
+                  ${attachable.map((c) => html`<option value=${c.id}>${c.name} (${c.type_label})</option>`)}
+                </select>
+                <${Button} type="submit" kind="primary" size="sm" icon="plus" disabled=${!channelId}>${t('common.add')}<//>`
+              : html`<span class="muted grow" style=${{ fontSize: '12.5px' }}>${(allChannels.data || []).length ? t('group.all_channels_added') : t('group.no_channels_defined')}</span>`}
+            <${Link} href="/settings/messengers" class="btn btn-ghost btn-sm"><${Icon} name="sliders" />${t('group.manage_channels')}<//>
+          </form>`}
+        <//>
         <${Callout} tone="accent" icon="lock">${t('group.isolation_note')}<//>
       </div>
     </div>
 
-    <${Card} class="reveal" style=${{ '--i': 6 }} flush title=${t('group.history')}
+    <${Card} class="reveal" style=${{ '--i': 7 }} flush title=${t('group.history')}
       tools=${html`<${Link} href=${'/mail-log?group_id=' + id} class="btn btn-ghost btn-sm"><${Icon} name="send" />${t('nav.mail_log')}<//>
         <${Link} href=${'/notifications?group_id=' + id} class="btn btn-ghost btn-sm">${t('common.view_all')}<${Icon} name="arrowRight" /><//>`}>
       ${notifications.length === 0 ? html`<${Empty} icon="bell" title=${t('notif.empty_title')}>${t('group.history_empty')}<//>`
@@ -257,7 +311,7 @@ export function GroupDetail({ params }) {
             <th>${t('notif.col.threshold')}</th><th>${t('notif.col.status')}</th></tr></thead>
           <tbody>${notifications.map((n) => html`<tr>
             <td class="nowrap" title=${fmtDateTime(n.created_at)}>${fmtRelative(n.sent_at || n.created_at)}</td>
-            <td>${n.recipient_email}</td><td class="endpoint">${n.certificate_url}</td>
+            <td><${NotifTarget} n=${n} /></td><td class="endpoint">${n.certificate_url}</td>
             <td>${thresholdLabel(n.threshold_days)}</td>
             <td><span class=${'badge tone-' + notifTone(n.status)} title=${n.last_error}>${t('notif.status_' + n.status)}</span></td>
           </tr>`)}</tbody></table></div>`}
@@ -270,7 +324,8 @@ export function GroupDetail({ params }) {
       footer=${html`<${Button} kind="primary" onClick=${() => setTestResult(null)}>${t('common.done')}<//>`}>
       <div class="list card" style=${{ boxShadow: 'none' }}>${testResult.results.map((r) => html`<div class="list-item">
         <${Icon} name=${r.error ? 'xCircle' : 'checkCircle'} size="18" />
-        <div class="cell-main grow"><span>${r.email}</span>${r.error && html`<span class="meta" style=${{ color: 'var(--exp)' }}>${r.error}</span>`}</div>
+        <div class="cell-main grow"><span class="row" style=${{ gap: '6px' }}><${Icon} name=${channelIcon(r.channel)} size="14" />${r.target}</span>
+          ${r.error && html`<span class="meta" style=${{ color: 'var(--exp)' }}>${r.error}</span>`}</div>
         <span class=${'badge tone-' + (r.error ? 'expired' : 'ok')}>${r.error ? t('notif.status_failed') : t('notif.status_sent')}</span>
       </div>`)}</div>
     <//>`}

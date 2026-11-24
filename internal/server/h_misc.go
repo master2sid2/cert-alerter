@@ -163,10 +163,11 @@ func nonNilCerts(v []certView) []certView {
 func (s *Server) handleListNotifications(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
 	f := store.NotificationFilter{
-		Status: q.Get("status"),
-		Query:  q.Get("q"),
-		Limit:  queryInt(r, "limit", 50),
-		Offset: queryInt(r, "offset", 0),
+		Status:  q.Get("status"),
+		Channel: q.Get("channel"),
+		Query:   q.Get("q"),
+		Limit:   queryInt(r, "limit", 50),
+		Offset:  queryInt(r, "offset", 0),
 	}
 	if v, err := strconv.ParseInt(q.Get("group_id"), 10, 64); err == nil {
 		f.GroupID = v

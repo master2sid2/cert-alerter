@@ -218,6 +218,8 @@ var Tables = []string{
 	"group_recipients",
 	"certificates",
 	"group_certificates",
+	"channels",
+	"group_channels",
 	"notifications",
 	"mail_log",
 	"settings",

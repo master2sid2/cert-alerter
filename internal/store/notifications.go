@@ -68,7 +68,8 @@ func (s *Store) NotificationKeys(ctx context.Context, from, to time.Time) (map[N
 }
 
 // InsertNotification creates a pending notification unless one with the
-// same (group, certificate, recipient, not_after, threshold) exists.
+// same (group, certificate, recipient or channel, not_after, threshold)
+// exists.
 // It reports whether a row was created.
 func (s *Store) InsertNotification(ctx context.Context, n *Notification) (bool, error) {
 	now := s.now()
@@ -78,12 +79,13 @@ func (s *Store) InsertNotification(ctx context.Context, n *Notification) (bool, 
 	n.Status = NotificationPending
 	n.CreatedAt = now
 	res, err := s.DB.ExecContext(ctx, `INSERT INTO notifications
-		(group_id, certificate_id, recipient_id, group_name, certificate_url, recipient_email, not_after,
-		 threshold_days, days_left, status, attempts, last_error, next_attempt_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?)`,
-		int64OrNil(n.GroupID), int64OrNil(n.CertificateID), int64OrNil(n.RecipientID),
-		truncate(n.GroupName, 255), truncate(n.CertificateURL, 2048), truncate(n.RecipientEmail, 255),
-		n.NotAfter.Unix(), n.ThresholdDays, n.DaysLeft, n.Status, n.NextAttemptAt.Unix(), now.Unix())
+		(group_id, certificate_id, recipient_id, channel_id, channel_type, group_name, certificate_url, recipient_email,
+		 not_after, threshold_days, days_left, status, attempts, last_error, next_attempt_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?)`,
+		int64OrNil(n.GroupID), int64OrNil(n.CertificateID), int64OrNil(n.RecipientID), int64OrNil(n.ChannelID),
+		truncate(n.ChannelType, 32), truncate(n.GroupName, 255), truncate(n.CertificateURL, 2048),
+		truncate(n.RecipientEmail, 255), n.NotAfter.Unix(), n.ThresholdDays, n.DaysLeft, n.Status,
+		n.NextAttemptAt.Unix(), now.Unix())
 	if err != nil {
 		if db.IsUniqueViolation(err) {
 			return false, nil
@@ -97,18 +99,20 @@ func (s *Store) InsertNotification(ctx context.Context, n *Notification) (bool, 
 // ListDueNotifications returns pending notifications whose next attempt is
 // due, joined with the current certificate/group/recipient state.
 func (s *Store) ListDueNotifications(ctx context.Context, now time.Time, limit int) ([]DueNotification, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT n.id, n.group_id, n.certificate_id, n.recipient_id, n.group_name,
-			n.certificate_url, n.recipient_email, n.not_after, n.threshold_days, n.days_left, n.status, n.attempts,
-			n.last_error, n.next_attempt_at, n.created_at,
+	rows, err := s.DB.QueryContext(ctx, `SELECT n.id, n.group_id, n.certificate_id, n.recipient_id, n.channel_id,
+			n.channel_type, n.group_name, n.certificate_url, n.recipient_email, n.not_after, n.threshold_days,
+			n.days_left, n.status, n.attempts, n.last_error, n.next_attempt_at, n.created_at,
 			c.id, c.url, c.name, c.subject_cn, c.issuer_cn, c.not_after, c.enabled,
 			g.id, g.name, g.description, r.id, r.email, r.name,
-			gc.group_id, gr.group_id
+			gc.group_id, gr.group_id, ch.id, ch.name, ch.enabled, gch.group_id
 		FROM notifications n
 		LEFT JOIN certificates c ON c.id = n.certificate_id
 		LEFT JOIN alert_groups g ON g.id = n.group_id
 		LEFT JOIN recipients r ON r.id = n.recipient_id
+		LEFT JOIN channels ch ON ch.id = n.channel_id
 		LEFT JOIN group_certificates gc ON gc.group_id = n.group_id AND gc.certificate_id = n.certificate_id
 		LEFT JOIN group_recipients gr ON gr.group_id = n.group_id AND gr.recipient_id = n.recipient_id
+		LEFT JOIN group_channels gch ON gch.group_id = n.group_id AND gch.channel_id = n.channel_id
 		WHERE n.status = ? AND n.next_attempt_at <= ?
 		ORDER BY n.id LIMIT ?`, NotificationPending, now.Unix(), limit)
 	if err != nil {
@@ -119,25 +123,33 @@ func (s *Store) ListDueNotifications(ctx context.Context, now time.Time, limit i
 	for rows.Next() {
 		var (
 			d                             DueNotification
-			gid, cid, rid                 sql.NullInt64
+			gid, cid, rid, chid           sql.NullInt64
 			notAfter, next, created       int64
 			cID, gID, rID, gcLink, grLink sql.NullInt64
+			chID, gchLink                 sql.NullInt64
 			cURL, cName, cCN, cIssuer     sql.NullString
 			gName, gDesc, rEmail, rName   sql.NullString
+			chName                        sql.NullString
 			cNotAfter                     sql.NullInt64
-			cEnabled                      sql.NullBool
+			cEnabled, chEnabled           sql.NullBool
 		)
-		if err := rows.Scan(&d.ID, &gid, &cid, &rid, &d.GroupName, &d.CertificateURL, &d.RecipientEmail, &notAfter,
-			&d.ThresholdDays, &d.DaysLeft, &d.Status, &d.Attempts, &d.LastError, &next, &created,
-			&cID, &cURL, &cName, &cCN, &cIssuer, &cNotAfter, &cEnabled,
-			&gID, &gName, &gDesc, &rID, &rEmail, &rName, &gcLink, &grLink); err != nil {
+		if err := rows.Scan(&d.ID, &gid, &cid, &rid, &chid, &d.ChannelType, &d.GroupName, &d.CertificateURL,
+			&d.RecipientEmail, &notAfter, &d.ThresholdDays, &d.DaysLeft, &d.Status, &d.Attempts, &d.LastError, &next,
+			&created, &cID, &cURL, &cName, &cCN, &cIssuer, &cNotAfter, &cEnabled,
+			&gID, &gName, &gDesc, &rID, &rEmail, &rName, &gcLink, &grLink, &chID, &chName, &chEnabled, &gchLink); err != nil {
 			return nil, err
 		}
 		d.GroupID, d.CertificateID, d.RecipientID = fromNullInt(gid), fromNullInt(cid), fromNullInt(rid)
+		d.ChannelID = fromNullInt(chid)
 		d.NotAfter, d.NextAttemptAt, d.CreatedAt = fromUnix(notAfter), fromUnix(next), fromUnix(created)
 		d.CurrentNotAfter = fromNullUnix(cNotAfter)
-		d.Valid = cID.Valid && gID.Valid && rID.Valid && gcLink.Valid && grLink.Valid &&
+		d.Valid = cID.Valid && gID.Valid && gcLink.Valid &&
 			cEnabled.Valid && cEnabled.Bool && cNotAfter.Valid && cNotAfter.Int64 == notAfter
+		if d.ChannelType == "" {
+			d.Valid = d.Valid && rID.Valid && grLink.Valid
+		} else {
+			d.Valid = d.Valid && chID.Valid && gchLink.Valid && chEnabled.Valid && chEnabled.Bool
+		}
 		if cURL.Valid {
 			d.CertificateURL = cURL.String
 		}
@@ -148,6 +160,9 @@ func (s *Store) ListDueNotifications(ctx context.Context, now time.Time, limit i
 		d.GroupDesc = gDesc.String
 		if rEmail.Valid {
 			d.RecipientEmail = rEmail.String
+		}
+		if chName.Valid {
+			d.RecipientEmail = chName.String
 		}
 		d.RecipientName = rName.String
 		out = append(out, d)
@@ -200,6 +215,7 @@ type NotificationFilter struct {
 	Status        string
 	GroupID       int64
 	CertificateID int64
+	Channel       string // "email" or a channel type; "" = all
 	Query         string // substring of recipient e-mail, URL or group name
 	Limit         int
 	Offset        int
@@ -224,6 +240,14 @@ func (s *Store) ListNotifications(ctx context.Context, f NotificationFilter) ([]
 		where = append(where, "certificate_id = ?")
 		args = append(args, f.CertificateID)
 	}
+	switch f.Channel {
+	case "":
+	case "email":
+		where = append(where, "channel_type = ''")
+	default:
+		where = append(where, "channel_type = ?")
+		args = append(args, f.Channel)
+	}
 	if q := strings.TrimSpace(f.Query); q != "" {
 		like := "%" + escapeLike(strings.ToLower(q)) + "%"
 		where = append(where, `(LOWER(recipient_email) LIKE ? ESCAPE '!' OR LOWER(certificate_url) LIKE ? ESCAPE '!' OR LOWER(group_name) LIKE ? ESCAPE '!')`)
@@ -241,8 +265,8 @@ func (s *Store) ListNotifications(ctx context.Context, f NotificationFilter) ([]
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, group_id, certificate_id, recipient_id, group_name, certificate_url,
-		recipient_email, not_after, threshold_days, days_left, status, attempts, last_error, next_attempt_at,
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, group_id, certificate_id, recipient_id, channel_id, channel_type,
+		group_name, certificate_url, recipient_email, not_after, threshold_days, days_left, status, attempts, last_error, next_attempt_at,
 		created_at, sent_at FROM notifications`+cond+" ORDER BY id DESC LIMIT ? OFFSET ?",
 		append(args, limit, max(f.Offset, 0))...)
 	if err != nil {
@@ -253,14 +277,16 @@ func (s *Store) ListNotifications(ctx context.Context, f NotificationFilter) ([]
 	for rows.Next() {
 		var (
 			n                       Notification
-			gid, cid, rid, sent     sql.NullInt64
+			gid, cid, rid, chid     sql.NullInt64
+			sent                    sql.NullInt64
 			notAfter, next, created int64
 		)
-		if err := rows.Scan(&n.ID, &gid, &cid, &rid, &n.GroupName, &n.CertificateURL, &n.RecipientEmail, &notAfter,
+		if err := rows.Scan(&n.ID, &gid, &cid, &rid, &chid, &n.ChannelType, &n.GroupName, &n.CertificateURL, &n.RecipientEmail, &notAfter,
 			&n.ThresholdDays, &n.DaysLeft, &n.Status, &n.Attempts, &n.LastError, &next, &created, &sent); err != nil {
 			return nil, 0, err
 		}
 		n.GroupID, n.CertificateID, n.RecipientID = fromNullInt(gid), fromNullInt(cid), fromNullInt(rid)
+		n.ChannelID = fromNullInt(chid)
 		n.NotAfter, n.NextAttemptAt, n.CreatedAt = fromUnix(notAfter), fromUnix(next), fromUnix(created)
 		n.SentAt = fromNullUnix(sent)
 		out = append(out, n)

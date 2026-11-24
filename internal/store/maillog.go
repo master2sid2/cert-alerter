@@ -24,9 +24,15 @@ const (
 	MailFailed = "failed"
 )
 
-// MailLogEntry records one attempt to send one e-mail.
+// Delivery channels of the journal besides the messenger types.
+const ChannelEmail = "email"
+
+// MailLogEntry records one attempt to deliver one message: an e-mail or a
+// messenger message (Channel is the provider type, Recipient the channel
+// name and SMTPServer the host that was contacted).
 type MailLogEntry struct {
 	ID           int64     `json:"id"`
+	Channel      string    `json:"channel"`
 	Kind         string    `json:"kind"`
 	Recipient    string    `json:"recipient"`
 	Subject      string    `json:"subject"`
@@ -46,11 +52,14 @@ func (s *Store) AddMailLog(ctx context.Context, e *MailLogEntry) error {
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = s.now()
 	}
+	if e.Channel == "" {
+		e.Channel = ChannelEmail
+	}
 	certs := strings.Join(e.Certificates, "\n")
 	res, err := s.DB.ExecContext(ctx, `INSERT INTO mail_log
-		(kind, recipient, subject, status, error, group_id, group_name, certificates, cert_count, smtp_server, duration_ms, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		truncate(e.Kind, 16), truncate(e.Recipient, 255), truncate(e.Subject, 500), e.Status, truncate(e.Error, 1000),
+		(channel, kind, recipient, subject, status, error, group_id, group_name, certificates, cert_count, smtp_server, duration_ms, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		truncate(e.Channel, 32), truncate(e.Kind, 16), truncate(e.Recipient, 255), truncate(e.Subject, 500), e.Status, truncate(e.Error, 1000),
 		int64OrNil(e.GroupID), truncate(e.GroupName, 255), truncate(certs, 4000), e.CertCount,
 		truncate(e.SMTPServer, 300), e.DurationMS, e.CreatedAt.Unix())
 	if err != nil {
@@ -62,6 +71,7 @@ func (s *Store) AddMailLog(ctx context.Context, e *MailLogEntry) error {
 
 // MailLogFilter narrows ListMailLog.
 type MailLogFilter struct {
+	Channel string   // "" = all
 	Kinds   []string // empty = all
 	Status  string
 	GroupID int64
@@ -82,6 +92,10 @@ func (f MailLogFilter) where() (string, []any) {
 		for _, k := range f.Kinds {
 			args = append(args, k)
 		}
+	}
+	if f.Channel != "" {
+		conds = append(conds, "channel = ?")
+		args = append(args, f.Channel)
 	}
 	if f.Status != "" {
 		conds = append(conds, "status = ?")
@@ -122,7 +136,7 @@ func (s *Store) ListMailLog(ctx context.Context, f MailLogFilter) ([]MailLogEntr
 	if limit <= 0 || limit > 10000 {
 		limit = 100
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, kind, recipient, subject, status, error, group_id, group_name,
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, channel, kind, recipient, subject, status, error, group_id, group_name,
 		certificates, cert_count, smtp_server, duration_ms, created_at FROM mail_log`+cond+
 		" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, max(f.Offset, 0))...)
 	if err != nil {
@@ -137,7 +151,7 @@ func (s *Store) ListMailLog(ctx context.Context, f MailLogFilter) ([]MailLogEntr
 			certs   string
 			created int64
 		)
-		if err := rows.Scan(&e.ID, &e.Kind, &e.Recipient, &e.Subject, &e.Status, &e.Error, &gid, &e.GroupName,
+		if err := rows.Scan(&e.ID, &e.Channel, &e.Kind, &e.Recipient, &e.Subject, &e.Status, &e.Error, &gid, &e.GroupName,
 			&certs, &e.CertCount, &e.SMTPServer, &e.DurationMS, &created); err != nil {
 			return nil, 0, err
 		}

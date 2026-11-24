@@ -27,11 +27,12 @@ func (s *Server) mailFilter(r *http.Request) store.MailLogFilter {
 	q := r.URL.Query()
 	allowed := mailKindsFor(r)
 	f := store.MailLogFilter{
-		Kinds:  allowed,
-		Status: q.Get("status"),
-		Query:  q.Get("q"),
-		Limit:  queryInt(r, "limit", 50),
-		Offset: queryInt(r, "offset", 0),
+		Channel: q.Get("channel"),
+		Kinds:   allowed,
+		Status:  q.Get("status"),
+		Query:   q.Get("q"),
+		Limit:   queryInt(r, "limit", 50),
+		Offset:  queryInt(r, "offset", 0),
 	}
 	if k := q.Get("kind"); k != "" {
 		if slices.Contains(allowed, k) {
@@ -98,13 +99,13 @@ func (s *Server) handleExportMailLog(w http.ResponseWriter, r *http.Request) err
 	}
 	loc := cfg.General.Location()
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="mail-log-%s.csv"`, time.Now().In(loc).Format("20060102-1504")))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="delivery-log-%s.csv"`, time.Now().In(loc).Format("20060102-1504")))
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF}) // BOM: lets spreadsheet apps detect UTF-8
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"time", "kind", "recipient", "subject", "status", "error", "group", "certificates", "smtp_server", "duration_ms"})
+	_ = cw.Write([]string{"time", "channel", "kind", "recipient", "subject", "status", "error", "group", "certificates", "server", "duration_ms"})
 	for _, e := range items {
 		_ = cw.Write([]string{
-			e.CreatedAt.In(loc).Format("2006-01-02 15:04:05 MST"), e.Kind, csvSafe(e.Recipient), csvSafe(e.Subject),
+			e.CreatedAt.In(loc).Format("2006-01-02 15:04:05 MST"), e.Channel, e.Kind, csvSafe(e.Recipient), csvSafe(e.Subject),
 			e.Status, csvSafe(e.Error), csvSafe(e.GroupName), csvSafe(strings.Join(e.Certificates, " ")), e.SMTPServer,
 			strconv.Itoa(e.DurationMS),
 		})

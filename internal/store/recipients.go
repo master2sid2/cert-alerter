@@ -119,6 +119,11 @@ func (s *Store) UpdateRecipient(ctx context.Context, r *Recipient) error {
 
 // SetRecipientGroups replaces the group memberships of a recipient.
 func (s *Store) SetRecipientGroups(ctx context.Context, id int64, groupIDs []int64) error {
+	return s.setGroups(ctx, "group_recipients", "recipient_id", id, groupIDs)
+}
+
+// setGroups replaces the groups an entity (recipient, channel) belongs to.
+func (s *Store) setGroups(ctx context.Context, table, col string, id int64, groupIDs []int64) error {
 	groupIDs = uniqueIDs(groupIDs)
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		if len(groupIDs) > 0 {
@@ -131,13 +136,13 @@ func (s *Store) SetRecipientGroups(ctx context.Context, id int64, groupIDs []int
 				return ErrNotFound
 			}
 		}
-		current, err := queryInt64s(ctx, tx, "SELECT group_id FROM group_recipients WHERE recipient_id = ?", id)
+		current, err := queryInt64s(ctx, tx, "SELECT group_id FROM "+table+" WHERE "+col+" = ?", id)
 		if err != nil {
 			return err
 		}
 		for _, g := range current {
 			if !slices.Contains(groupIDs, g) {
-				if _, err := tx.ExecContext(ctx, "DELETE FROM group_recipients WHERE group_id = ? AND recipient_id = ?", g, id); err != nil {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE group_id = ? AND "+col+" = ?", g, id); err != nil {
 					return err
 				}
 			}
@@ -145,8 +150,7 @@ func (s *Store) SetRecipientGroups(ctx context.Context, id int64, groupIDs []int
 		now := s.now().Unix()
 		for _, g := range groupIDs {
 			if !slices.Contains(current, g) {
-				if _, err := tx.ExecContext(ctx, s.DB.InsertIgnore("group_recipients", "group_id", "recipient_id", "created_at"),
-					g, id, now); err != nil {
+				if _, err := tx.ExecContext(ctx, s.DB.InsertIgnore(table, "group_id", col, "created_at"), g, id, now); err != nil {
 					return err
 				}
 			}

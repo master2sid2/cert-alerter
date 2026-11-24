@@ -4,6 +4,8 @@ import { Icon } from '../components/icons.js';
 import { Button, Card, Empty, ErrorState, Pager, Segmented, Skeleton, toastError } from '../components/ui.js';
 import { PageHead } from '../components/layout.js';
 import { notifTone } from './dashboard.js';
+import { NotifTarget } from './groups.js';
+import { channelIcon, channelLabel } from '../components/channels.js';
 import { get, post } from '../lib/api.js';
 import { app, toast } from '../lib/store.js';
 import { Link, setQuery, useLocation } from '../lib/router.js';
@@ -17,12 +19,14 @@ export function Notifications() {
   const isAdmin = me.user.role === 'admin';
   const { query } = useLocation();
   const status = query.get('status') || '';
+  const channel = query.get('channel') || '';
   const groupId = query.get('group_id') || '';
   const offset = Number(query.get('offset') || 0);
   const [q, setQ] = useState(query.get('q') || '');
   useTitle(t('nav.notifications'), me.app.name);
   const params = new URLSearchParams({ limit: LIMIT, offset });
   if (status) params.set('status', status);
+  if (channel) params.set('channel', channel);
   if (groupId) params.set('group_id', groupId);
   if (query.get('q')) params.set('q', query.get('q'));
   const data = useAsync(() => get('/notifications?' + params), [params.toString()]);
@@ -50,6 +54,8 @@ export function Notifications() {
       </form>
       <${Segmented} value=${status} onChange=${(v) => setQuery({ status: v, offset: '' })} label=${t('notif.col.status')}
         options=${['', 'sent', 'pending', 'failed', 'cancelled'].map((s) => ({ value: s, label: s ? t('notif.status_' + s) : t('certs.filter_all') }))} />
+      <${Segmented} value=${channel} onChange=${(v) => setQuery({ channel: v, offset: '' })} label=${t('channels.type')}
+        options=${['', 'email', 'telegram', 'slack', 'webhook'].map((c) => ({ value: c, label: c ? channelLabel(c) : t('channels.all'), icon: c ? channelIcon(c) : undefined }))} />
       ${groupId && html`<${Button} size="sm" icon="x" onClick=${() => setQuery({ group_id: '', offset: '' })}>${t('notif.clear_group')}<//>`}
     </div>
     <${Card} class="reveal" style=${{ '--i': 2 }} flush>
@@ -63,7 +69,7 @@ export function Notifications() {
             <td class="nowrap"><div class="cell-main"><span>${fmtDateTime(n.sent_at || n.created_at)}</span>
               <span class="subtitle">${fmtRelative(n.sent_at || n.created_at)}</span></div></td>
             <td>${n.group_id ? html`<${Link} href=${'/groups/' + n.group_id}>${n.group_name}<//>` : html`<span class="muted">${n.group_name}</span>`}</td>
-            <td>${n.recipient_email}</td>
+            <td><${NotifTarget} n=${n} /></td>
             <td class="endpoint" style=${{ maxWidth: '260px' }}>${n.certificate_id
               ? html`<${Link} href=${'/certificates/' + n.certificate_id} class="truncate" style=${{ display: 'block' }}>${n.certificate_url}<//>`
               : html`<span class="truncate" style=${{ display: 'block' }}>${n.certificate_url}</span>`}</td>

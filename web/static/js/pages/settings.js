@@ -1,4 +1,4 @@
-// Admin settings: general, e-mail (SMTP), monitoring, security policy.
+// Admin settings: general, e-mail (SMTP), messengers, monitoring, security policy.
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { Icon } from '../components/icons.js';
 import {
@@ -6,13 +6,14 @@ import {
   TextField, toastError,
 } from '../components/ui.js';
 import { PageHead } from '../components/layout.js';
+import { Messengers } from './messengers.js';
 import { get, post, put } from '../lib/api.js';
 import { app, toast } from '../lib/store.js';
 import { navigate } from '../lib/router.js';
 import { useAsync, useTitle } from '../lib/hooks.js';
 import { t, tp } from '../lib/i18n.js';
 
-const TABS = ['general', 'email', 'monitoring', 'security'];
+const TABS = ['general', 'email', 'messengers', 'monitoring', 'security'];
 // Suggestions for the time zone field: every IANA zone the browser knows.
 const ZONES = (() => {
   try { return ['UTC', ...Intl.supportedValuesOf('timeZone').filter((z) => z !== 'UTC')]; } catch { return ['UTC']; }
@@ -282,12 +283,13 @@ export function Settings({ params }) {
   if (data.error) return html`<div class="page"><${ErrorState} error=${data.error} onRetry=${data.reload} /></div>`;
   if (!data.data) return html`<${PageLoader} />`;
   const onSaved = (r) => data.setData(r);
-  const Section = { general: General, email: Email, monitoring: Monitoring, security: Security }[tab];
+  const Section = { general: General, email: Email, messengers: Messengers, monitoring: Monitoring, security: Security }[tab];
   return html`<div class="page" style=${{ maxWidth: '980px' }}>
     <${PageHead} title=${t('nav.settings')} sub=${t('settings.sub')} />
     <${Tabs} value=${tab} onChange=${(v) => navigate('/settings/' + v, { replace: true })} tabs=${[
       { value: 'general', label: t('settings.general'), icon: 'globe' },
       { value: 'email', label: t('settings.email'), icon: 'mail' },
+      { value: 'messengers', label: t('settings.messengers'), icon: 'message' },
       { value: 'monitoring', label: t('settings.monitoring'), icon: 'activity' },
       { value: 'security', label: t('settings.security_tab'), icon: 'lock' },
     ]} />
